@@ -1,0 +1,116 @@
+#!/bin/bash
+
+#SBATCH -A aqu2_lab
+#SBATCH -J diffts_all
+#SBATCH -p gpu
+#SBATCH --nodes=1
+#SBATCH --mem=64GB
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1
+#SBATCH --time=72:00:00
+#SBATCH --error=logs/diffts-%J.err
+#SBATCH --output=logs/diffts-%J.out
+#SBATCH --mail-type=fail,end
+#SBATCH --mail-user=shilligo@uci.edu
+
+# ================================================================
+# SLURM submission script for Diffusion-TS training (all datasets)
+#
+# Trains unconditional generation on: Stocks, ETTh, Energy, fMRI,
+# Sines, MuJoCo (sequentially on a single GPU).
+#
+# Usage:
+#   sbatch train_all.sub                          # all 6 datasets
+#   sbatch --export=DATASETS="stocks;etth" train_all.sub  # subset
+#
+# Environment variables:
+#   DATASETS - SEMICOLON-separated dataset names to train
+#              (default: stocks;etth;energy;fmri;sines;mujoco)
+# ================================================================
+
+# Load modules
+module purge
+module load anaconda/2024.06
+
+# Activate conda environment
+conda activate diffts
+
+# Change to project directory
+cd ~/Diffusion-TS || { echo "ERROR: Could not cd to ~/Diffusion-TS"; exit 1; }
+
+# Create logs directory
+mkdir -p logs
+
+# Log job information
+echo "=========================================="
+echo "Diffusion-TS Training - All Datasets"
+echo "=========================================="
+echo "Job ID: $SLURM_JOB_ID"
+echo "Node: $(hostname)"
+echo "CPUs: $SLURM_CPUS_PER_TASK"
+echo "Memory: $SLURM_MEM_PER_NODE"
+echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'unknown')"
+echo "Time: $(date)"
+echo "Working Directory: $(pwd)"
+echo "DATASETS: ${DATASETS:-stocks;etth;energy;fmri;sines;mujoco (default)}"
+echo "=========================================="
+
+# Dataset definitions: name;config_file
+declare -A CONFIGS
+CONFIGS[stocks]="Config/stocks.yaml"
+CONFIGS[etth]="Config/etth.yaml"
+CONFIGS[energy]="Config/energy.yaml"
+CONFIGS[fmri]="Config/fmri.yaml"
+CONFIGS[sines]="Config/sines.yaml"
+CONFIGS[mujoco]="Config/mujoco.yaml"
+
+# Default dataset order
+DATASETS="${DATASETS:-stocks;etth;energy;fmri;sines;mujoco}"
+
+# Track overall exit code
+OVERALL_EXIT=0
+
+# Loop through datasets
+IFS=';' read -ra DATASET_LIST <<< "$DATASETS"
+for dataset in "${DATASET_LIST[@]}"; do
+    config="${CONFIGS[$dataset]}"
+
+    if [ -z "$config" ]; then
+        echo "WARNING: Unknown dataset '$dataset', skipping."
+        continue
+    fi
+
+    echo ""
+    echo "=========================================="
+    echo "Training: $dataset"
+    echo "Config:   $config"
+    echo "Started:  $(date)"
+    echo "=========================================="
+
+    python main.py \
+        --name "${dataset}" \
+        --config_file "${config}" \
+        --gpu 0 \
+        --train
+
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "WARNING: $dataset training exited with code $EXIT_CODE"
+        OVERALL_EXIT=1
+    else
+        echo "$dataset training completed successfully."
+    fi
+
+    echo "Finished: $(date)"
+    echo "=========================================="
+done
+
+# Log completion
+echo ""
+echo "=========================================="
+echo "All training completed at: $(date)"
+echo "Exit code: $OVERALL_EXIT"
+echo "=========================================="
+
+exit $OVERALL_EXIT
