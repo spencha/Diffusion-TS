@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -A aqu2_lab
+#SBATCH -A aqu2_lab_gpu
 #SBATCH -J diffts_all
 #SBATCH -p gpu
 #SBATCH --nodes=1
