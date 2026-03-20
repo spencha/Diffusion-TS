@@ -29,11 +29,10 @@
 #              (default: stocks;etth;energy;fmri;sines;mujoco)
 # ================================================================
 
-# Load modules
+# Load modules and activate conda environment
 module purge
 module load anaconda/2024.06
-
-# Activate conda environment
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate diffts
 
 # Change to project directory
