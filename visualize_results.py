@@ -1,7 +1,7 @@
 """
 Diffusion-TS Results Visualization
 ===================================
-Generates presentation-ready figures comparing generated vs real time series,
+Generates publication-quality figures comparing generated vs real time series,
 with a framework for side-by-side comparison against PaD-TS.
 
 Usage:
@@ -24,6 +24,8 @@ import sys
 import warnings
 from pathlib import Path
 
+import matplotlib
+matplotlib.rcParams["text.usetex"] = False  # use mathtext, not system LaTeX
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
@@ -35,39 +37,58 @@ warnings.filterwarnings("ignore")
 
 # ── Style ────────────────────────────────────────────────────────────────────
 
+FONT_FAMILY = "serif"
+
 plt.rcParams.update({
     "figure.facecolor": "white",
     "axes.facecolor": "white",
     "axes.grid": True,
-    "grid.alpha": 0.3,
-    "font.size": 11,
-    "axes.titlesize": 13,
-    "axes.labelsize": 11,
-    "legend.fontsize": 9,
+    "grid.alpha": 0.25,
+    "grid.linestyle": "--",
+    "font.family": FONT_FAMILY,
+    "mathtext.fontset": "cm",
+    "font.size": 12,
+    "axes.titlesize": 14,
+    "axes.labelsize": 12,
+    "legend.fontsize": 10,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
     "figure.dpi": 150,
     "savefig.dpi": 300,
     "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.1,
+    "savefig.pad_inches": 0.15,
 })
 
 COLORS = {
     "real": "#2c3e50",
-    "diffts": "#e74c3c",
-    "padts": "#3498db",
-    "real_fill": "#bdc3c7",
-    "diffts_fill": "#e74c3c",
-    "padts_fill": "#3498db",
+    "diffts": "#c0392b",
+    "padts": "#2980b9",
+}
+
+METHOD_LABELS = {
+    "real": "Real",
+    "diffts": "Diffusion-TS",
+    "padts": "PaD-TS",
+}
+
+DATASET_DISPLAY = {
+    "stocks": "Stocks",
+    "etth": "ETTh1",
+    "energy": "Energy",
+    "fmri": "fMRI",
+    "sines": "Sine",
+    "mujoco": "MuJoCo",
 }
 
 # ── Dataset registry ─────────────────────────────────────────────────────────
 
 DATASETS = {
-    "stocks": {"features": 6, "seq_len": 24, "feature_names": None},
-    "etth":   {"features": 7, "seq_len": 24, "feature_names": None},
-    "energy": {"features": 28, "seq_len": 24, "feature_names": None},
-    "fmri":   {"features": 50, "seq_len": 24, "feature_names": None},
-    "sines":  {"features": 5, "seq_len": 24, "feature_names": None},
-    "mujoco": {"features": 14, "seq_len": 24, "feature_names": None},
+    "stocks": {"features": 6, "seq_len": 24},
+    "etth":   {"features": 7, "seq_len": 24},
+    "energy": {"features": 28, "seq_len": 24},
+    "fmri":   {"features": 50, "seq_len": 24},
+    "sines":  {"features": 5, "seq_len": 24},
+    "mujoco": {"features": 14, "seq_len": 24},
 }
 
 
@@ -94,18 +115,15 @@ def load_dataset(dataset_name, output_dir="OUTPUT", padts_path=None):
 
     seq_len = DATASETS[dataset_name]["seq_len"]
 
-    # Real data (try norm first, then ground truth)
     real_candidates = [
         "{name}_norm_truth_" + str(seq_len) + "_train.npy",
         "{name}_ground_truth_" + str(seq_len) + "_train.npy",
     ]
     real_path = find_npy(dataset_name, real_candidates, base_dirs)
     if real_path is None:
-        # Also check for name variants (e.g. "stock" vs "stocks")
         alt_name = dataset_name.rstrip("s") if dataset_name.endswith("s") else dataset_name
         real_path = find_npy(alt_name, real_candidates, base_dirs)
 
-    # Diffusion-TS synthetic data
     fake_candidates = ["ddpm_fake_{name}.npy"]
     fake_path = find_npy(dataset_name, fake_candidates, base_dirs)
 
@@ -132,7 +150,6 @@ def load_dataset(dataset_name, output_dir="OUTPUT", padts_path=None):
 # ── Metric computation ───────────────────────────────────────────────────────
 
 def compute_context_fid(real, fake, n_iters=3):
-    """Compute Context-FID score (requires Utils on path)."""
     try:
         from Utils.context_fid import Context_FID
         scores = []
@@ -143,12 +160,11 @@ def compute_context_fid(real, fake, n_iters=3):
             scores.append(score)
         return float(np.mean(scores)), float(np.std(scores))
     except Exception as e:
-        print(f"    Context-FID failed: {e}")
+        print(f"    Context FID failed: {e}")
         return None, None
 
 
 def compute_cross_corr(real, fake, n_iters=3):
-    """Compute cross-correlation score."""
     try:
         from Utils.cross_correlation import CrossCorrelLoss
         loss_fn = CrossCorrelLoss()
@@ -168,7 +184,6 @@ def compute_cross_corr(real, fake, n_iters=3):
 
 
 def compute_discriminative(real, fake):
-    """Compute discriminative score."""
     try:
         from Utils.discriminative_metric import discriminative_score_metrics
         scores = []
@@ -186,7 +201,6 @@ def compute_discriminative(real, fake):
 
 
 def compute_predictive(real, fake):
-    """Compute predictive score."""
     try:
         from Utils.predictive_metric import predictive_score_metrics
         scores = []
@@ -204,19 +218,18 @@ def compute_predictive(real, fake):
 
 
 def compute_all_metrics(real, fake, label=""):
-    """Compute all four metrics, return dict."""
     print(f"  Computing metrics for {label}...")
     metrics = {}
 
     m, s = compute_context_fid(real, fake)
-    metrics["Context-FID"] = (m, s)
+    metrics["Context FID"] = (m, s)
     if m is not None:
-        print(f"    Context-FID: {m:.4f} +/- {s:.4f}")
+        print(f"    Context FID: {m:.4f} +/- {s:.4f}")
 
     m, s = compute_cross_corr(real, fake)
-    metrics["Cross-Corr"] = (m, s)
+    metrics["Cross Corr."] = (m, s)
     if m is not None:
-        print(f"    Cross-Corr:  {m:.4f} +/- {s:.4f}")
+        print(f"    Cross Corr.: {m:.4f} +/- {s:.4f}")
 
     m, s = compute_discriminative(real, fake)
     metrics["Discriminative"] = (m, s)
@@ -234,27 +247,25 @@ def compute_all_metrics(real, fake, label=""):
 # ── Figure 1: Sample time series comparison ──────────────────────────────────
 
 def plot_sample_series(data, dataset_name, out_dir, n_samples=3, n_features=4):
-    """Plot example real vs generated time series side by side."""
     has_padts = "padts" in data
     n_cols = 3 if has_padts else 2
     n_features = min(n_features, data["real"].shape[2])
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
 
     fig, axes = plt.subplots(n_features, n_cols, figsize=(4.5 * n_cols, 2.5 * n_features))
     if n_features == 1:
         axes = axes[np.newaxis, :]
 
-    col_labels = ["Real", "Diffusion-TS"]
     col_keys = ["real", "diffts"]
-    col_colors = [COLORS["real"], COLORS["diffts"]]
     if has_padts:
-        col_labels.append("PaD-TS")
         col_keys.append("padts")
-        col_colors.append(COLORS["padts"])
 
-    for col_idx, (key, label, color) in enumerate(zip(col_keys, col_labels, col_colors)):
+    for col_idx, key in enumerate(col_keys):
         if key not in data:
             continue
         arr = data[key]
+        label = METHOD_LABELS[key]
+        color = COLORS[key]
         idxs = np.random.choice(len(arr), n_samples, replace=False)
         for feat in range(n_features):
             ax = axes[feat, col_idx]
@@ -264,10 +275,13 @@ def plot_sample_series(data, dataset_name, out_dir, n_samples=3, n_features=4):
             if feat == 0:
                 ax.set_title(label, fontweight="bold", color=color)
             if col_idx == 0:
-                ax.set_ylabel(f"Feature {feat}")
+                ax.set_ylabel(r"$x_{" + str(feat + 1) + r"}(t)$")
+            if feat == n_features - 1:
+                ax.set_xlabel(r"Time step $t$")
             ax.xaxis.set_major_locator(MaxNLocator(5))
 
-    fig.suptitle(f"{dataset_name.upper()} — Sample Time Series", fontsize=15, fontweight="bold", y=1.01)
+    fig.suptitle(rf"{ds_label} $-$ Sample Time Series",
+                 fontsize=16, fontweight="bold", y=1.01)
     plt.tight_layout()
     path = os.path.join(out_dir, f"{dataset_name}_samples.png")
     fig.savefig(path)
@@ -278,21 +292,20 @@ def plot_sample_series(data, dataset_name, out_dir, n_samples=3, n_features=4):
 # ── Figure 2: t-SNE embedding ────────────────────────────────────────────────
 
 def plot_tsne(data, dataset_name, out_dir, max_n=2000):
-    """t-SNE of real vs synthetic distributions."""
     has_padts = "padts" in data
     n_cols = 2 if has_padts else 1
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
 
     fig, axes = plt.subplots(1, n_cols, figsize=(6 * n_cols, 5))
     if n_cols == 1:
         axes = [axes]
 
     real = data["real"][:max_n]
-    # Flatten: (N, seq, feat) -> (N, seq*feat)
     real_flat = real.reshape(len(real), -1)
 
-    comparisons = [("diffts", "Diffusion-TS", COLORS["diffts"])]
+    comparisons = [("diffts", METHOD_LABELS["diffts"], COLORS["diffts"])]
     if has_padts:
-        comparisons.append(("padts", "PaD-TS", COLORS["padts"]))
+        comparisons.append(("padts", METHOD_LABELS["padts"], COLORS["padts"]))
 
     for ax, (key, label, color) in zip(axes, comparisons):
         fake = data[key][:max_n]
@@ -307,12 +320,14 @@ def plot_tsne(data, dataset_name, out_dir, max_n=2000):
                    c=COLORS["real"], s=8, alpha=0.5, label="Real", edgecolors="none")
         ax.scatter(embedded[n_real:, 0], embedded[n_real:, 1],
                    c=color, s=8, alpha=0.5, label=label, edgecolors="none")
-        ax.legend(markerscale=3, framealpha=0.8)
-        ax.set_title(f"Real vs {label}", fontweight="bold")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        ax.legend(markerscale=3, framealpha=0.9, edgecolor="none")
+        ax.set_title(rf"Real vs. {label}", fontweight="bold")
+        ax.set_xlabel(r"$t$-SNE$_1$")
+        ax.set_ylabel(r"$t$-SNE$_2$")
+        ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
-    fig.suptitle(f"{dataset_name.upper()} — t-SNE", fontsize=15, fontweight="bold", y=1.02)
+    fig.suptitle(rf"{ds_label} $-$ $t$-SNE Embedding",
+                 fontsize=16, fontweight="bold", y=1.02)
     plt.tight_layout()
     path = os.path.join(out_dir, f"{dataset_name}_tsne.png")
     fig.savefig(path)
@@ -323,9 +338,9 @@ def plot_tsne(data, dataset_name, out_dir, max_n=2000):
 # ── Figure 3: PCA embedding ──────────────────────────────────────────────────
 
 def plot_pca(data, dataset_name, out_dir, max_n=2000):
-    """PCA projection of real vs synthetic."""
     has_padts = "padts" in data
     n_cols = 2 if has_padts else 1
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
 
     fig, axes = plt.subplots(1, n_cols, figsize=(6 * n_cols, 5))
     if n_cols == 1:
@@ -336,12 +351,13 @@ def plot_pca(data, dataset_name, out_dir, max_n=2000):
 
     pca = PCA(n_components=2)
     pca.fit(real_flat)
-
     real_pca = pca.transform(real_flat)
 
-    comparisons = [("diffts", "Diffusion-TS", COLORS["diffts"])]
+    var_explained = pca.explained_variance_ratio_
+
+    comparisons = [("diffts", METHOD_LABELS["diffts"], COLORS["diffts"])]
     if has_padts:
-        comparisons.append(("padts", "PaD-TS", COLORS["padts"]))
+        comparisons.append(("padts", METHOD_LABELS["padts"], COLORS["padts"]))
 
     for ax, (key, label, color) in zip(axes, comparisons):
         fake = data[key][:max_n]
@@ -352,12 +368,13 @@ def plot_pca(data, dataset_name, out_dir, max_n=2000):
                    c=COLORS["real"], s=8, alpha=0.4, label="Real", edgecolors="none")
         ax.scatter(fake_pca[:, 0], fake_pca[:, 1],
                    c=color, s=8, alpha=0.4, label=label, edgecolors="none")
-        ax.legend(markerscale=3, framealpha=0.8)
-        ax.set_title(f"Real vs {label}", fontweight="bold")
-        ax.set_xlabel("PC 1")
-        ax.set_ylabel("PC 2")
+        ax.legend(markerscale=3, framealpha=0.9, edgecolor="none")
+        ax.set_title(rf"Real vs. {label}", fontweight="bold")
+        ax.set_xlabel(rf"PC$_1$ ({var_explained[0]:.1%} var.)")
+        ax.set_ylabel(rf"PC$_2$ ({var_explained[1]:.1%} var.)")
 
-    fig.suptitle(f"{dataset_name.upper()} — PCA", fontsize=15, fontweight="bold", y=1.02)
+    fig.suptitle(rf"{ds_label} $-$ PCA Projection",
+                 fontsize=16, fontweight="bold", y=1.02)
     plt.tight_layout()
     path = os.path.join(out_dir, f"{dataset_name}_pca.png")
     fig.savefig(path)
@@ -368,10 +385,10 @@ def plot_pca(data, dataset_name, out_dir, max_n=2000):
 # ── Figure 4: Marginal distributions (KDE) ───────────────────────────────────
 
 def plot_marginals(data, dataset_name, out_dir, n_features=6):
-    """KDE of per-feature marginal distributions."""
     n_features = min(n_features, data["real"].shape[2])
     n_cols = 3
     n_rows = int(np.ceil(n_features / n_cols))
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 3 * n_rows))
     axes = np.atleast_2d(axes)
@@ -386,24 +403,26 @@ def plot_marginals(data, dataset_name, out_dir, n_features=6):
 
         diffts_feat = data["diffts"][:, :, i].flatten()
         ax.hist(diffts_feat, bins=60, density=True, alpha=0.35,
-                color=COLORS["diffts"], label="Diffusion-TS", histtype="step", linewidth=1.5)
+                color=COLORS["diffts"], label="Diffusion-TS",
+                histtype="step", linewidth=1.5)
 
         if "padts" in data:
             padts_feat = data["padts"][:, :, i].flatten()
             ax.hist(padts_feat, bins=60, density=True, alpha=0.35,
-                    color=COLORS["padts"], label="PaD-TS", histtype="step", linewidth=1.5)
+                    color=COLORS["padts"], label="PaD-TS",
+                    histtype="step", linewidth=1.5)
 
-        ax.set_title(f"Feature {i}", fontsize=10)
+        ax.set_title(r"$x_{" + str(i + 1) + r"}$", fontsize=11)
+        ax.set_ylabel(r"Density $p(x)$")
         if i == 0:
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=9)
 
-    # Hide unused axes
     for i in range(n_features, n_rows * n_cols):
         row, col = divmod(i, n_cols)
         axes[row, col].set_visible(False)
 
-    fig.suptitle(f"{dataset_name.upper()} — Marginal Distributions",
-                 fontsize=15, fontweight="bold", y=1.01)
+    fig.suptitle(rf"{ds_label} $-$ Marginal Distributions",
+                 fontsize=16, fontweight="bold", y=1.01)
     plt.tight_layout()
     path = os.path.join(out_dir, f"{dataset_name}_marginals.png")
     fig.savefig(path)
@@ -414,8 +433,8 @@ def plot_marginals(data, dataset_name, out_dir, n_features=6):
 # ── Figure 5: Temporal autocorrelation ────────────────────────────────────────
 
 def plot_autocorrelation(data, dataset_name, out_dir, max_lag=12, n_features=4):
-    """Compare autocorrelation structure of real vs generated."""
     n_features = min(n_features, data["real"].shape[2])
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
 
     fig, axes = plt.subplots(1, n_features, figsize=(4 * n_features, 3.5))
     if n_features == 1:
@@ -424,33 +443,30 @@ def plot_autocorrelation(data, dataset_name, out_dir, max_lag=12, n_features=4):
     lags = np.arange(1, max_lag + 1)
 
     for feat, ax in zip(range(n_features), axes):
-        for key, label, color in [("real", "Real", COLORS["real"]),
-                                   ("diffts", "Diffusion-TS", COLORS["diffts"]),
-                                   ("padts", "PaD-TS", COLORS["padts"])]:
+        for key in ["real", "diffts", "padts"]:
             if key not in data:
                 continue
-            series = data[key][:, :, feat]  # (N, T)
+            series = data[key][:, :, feat]
             acorrs = []
             for lag in lags:
                 x = series[:, :-lag]
                 y = series[:, lag:]
-                # Mean correlation across samples
                 corr = np.mean([np.corrcoef(x[i], y[i])[0, 1]
                                 for i in range(min(500, len(series)))
                                 if np.std(x[i]) > 1e-8 and np.std(y[i]) > 1e-8])
                 acorrs.append(corr)
-            ax.plot(lags, acorrs, marker="o", markersize=3, color=color,
-                    label=label, linewidth=1.5)
+            ax.plot(lags, acorrs, marker="o", markersize=3, color=COLORS[key],
+                    label=METHOD_LABELS[key], linewidth=1.5)
 
-        ax.set_title(f"Feature {feat}", fontsize=10)
-        ax.set_xlabel("Lag")
+        ax.set_title(r"$x_{" + str(feat + 1) + r"}$", fontsize=11)
+        ax.set_xlabel(r"Lag $\tau$")
         if feat == 0:
-            ax.set_ylabel("Autocorrelation")
-            ax.legend(fontsize=8)
+            ax.set_ylabel(r"$\rho(\tau)$")
+            ax.legend(fontsize=9)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    fig.suptitle(f"{dataset_name.upper()} — Autocorrelation",
-                 fontsize=15, fontweight="bold", y=1.03)
+    fig.suptitle(rf"{ds_label} $-$ Autocorrelation $\rho(\tau)$",
+                 fontsize=16, fontweight="bold", y=1.03)
     plt.tight_layout()
     path = os.path.join(out_dir, f"{dataset_name}_autocorr.png")
     fig.savefig(path)
@@ -460,9 +476,16 @@ def plot_autocorrelation(data, dataset_name, out_dir, max_lag=12, n_features=4):
 
 # ── Figure 6: Metric comparison bar chart (across datasets) ──────────────────
 
+METRIC_DISPLAY = {
+    "Context FID": r"Context FID $\downarrow$",
+    "Cross Corr.": r"Cross Corr. $\downarrow$",
+    "Discriminative": r"Discriminative $\downarrow$",
+    "Predictive": r"Predictive $\downarrow$",
+}
+
+
 def plot_metric_comparison(all_metrics, out_dir):
-    """Bar chart comparing Diffusion-TS (and PaD-TS) across datasets and metrics."""
-    metric_names = ["Context-FID", "Cross-Corr", "Discriminative", "Predictive"]
+    metric_names = ["Context FID", "Cross Corr.", "Discriminative", "Predictive"]
     datasets_with_metrics = [d for d in all_metrics if all_metrics[d]]
 
     if not datasets_with_metrics:
@@ -483,7 +506,7 @@ def plot_metric_comparison(all_metrics, out_dir):
             if "diffts" in all_metrics[ds] and metric in all_metrics[ds]["diffts"]:
                 m, s = all_metrics[ds]["diffts"][metric]
                 if m is not None:
-                    ds_names.append(ds)
+                    ds_names.append(DATASET_DISPLAY.get(ds, ds))
                     diffts_vals.append(m)
                     diffts_errs.append(s or 0)
 
@@ -504,18 +527,20 @@ def plot_metric_comparison(all_metrics, out_dir):
         offset = width / 2 if has_padts else 0
 
         ax.bar(x - offset, diffts_vals, width, yerr=diffts_errs,
-               color=COLORS["diffts"], alpha=0.8, label="Diffusion-TS", capsize=3)
+               color=COLORS["diffts"], alpha=0.85, label="Diffusion-TS",
+               capsize=3, edgecolor="white", linewidth=0.5)
         if has_padts and any(v > 0 for v in padts_vals):
             ax.bar(x + offset, padts_vals, width, yerr=padts_errs,
-                   color=COLORS["padts"], alpha=0.8, label="PaD-TS", capsize=3)
+                   color=COLORS["padts"], alpha=0.85, label="PaD-TS",
+                   capsize=3, edgecolor="white", linewidth=0.5)
 
         ax.set_xticks(x)
-        ax.set_xticklabels(ds_names, rotation=30, ha="right", fontsize=9)
-        ax.set_title(metric, fontweight="bold")
-        ax.legend(fontsize=8)
+        ax.set_xticklabels(ds_names, rotation=30, ha="right")
+        ax.set_title(METRIC_DISPLAY.get(metric, metric), fontweight="bold")
+        ax.legend(fontsize=9, edgecolor="none")
 
-    fig.suptitle("Quantitative Metrics Comparison (lower is better)",
-                 fontsize=15, fontweight="bold", y=1.02)
+    fig.suptitle(r"Quantitative Comparison ($\downarrow$ lower is better)",
+                 fontsize=16, fontweight="bold", y=1.02)
     plt.tight_layout()
     path = os.path.join(out_dir, "metrics_comparison.png")
     fig.savefig(path)
@@ -526,12 +551,12 @@ def plot_metric_comparison(all_metrics, out_dir):
 # ── Figure 7: Summary dashboard per dataset ──────────────────────────────────
 
 def plot_dashboard(data, metrics, dataset_name, out_dir):
-    """Single-page dashboard: samples + t-SNE + PCA + marginals + metrics."""
     has_padts = "padts" in data
+    ds_label = DATASET_DISPLAY.get(dataset_name, dataset_name)
     fig = plt.figure(figsize=(20, 12))
     gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.3)
 
-    # Top-left: sample series (2 cols)
+    # Top-left: sample series
     ax_samples = fig.add_subplot(gs[0, 0:2])
     n_show = min(3, data["real"].shape[2])
     for feat in range(n_show):
@@ -543,15 +568,18 @@ def plot_dashboard(data, metrics, dataset_name, out_dir):
             ax_samples.plot(data["diffts"][idx_f, :, feat], color=COLORS["diffts"],
                             alpha=0.7, linewidth=1.2, linestyle="--",
                             label="Diffusion-TS" if feat == 0 else None)
-    ax_samples.legend(fontsize=8)
+    ax_samples.legend(fontsize=9, edgecolor="none")
+    ax_samples.set_xlabel(r"Time step $t$")
+    ax_samples.set_ylabel(r"$x(t)$")
     ax_samples.set_title("Sample Series", fontweight="bold")
 
-    # Top-right: t-SNE (2 cols)
+    # Top-right: t-SNE
     ax_tsne = fig.add_subplot(gs[0, 2:4])
     max_n = min(1500, len(data["real"]))
     real_flat = data["real"][:max_n].reshape(max_n, -1)
     if "diffts" in data:
-        fake_flat = data["diffts"][:max_n].reshape(min(max_n, len(data["diffts"])), -1)
+        fake_n = min(max_n, len(data["diffts"]))
+        fake_flat = data["diffts"][:fake_n].reshape(fake_n, -1)
         combined = np.concatenate([real_flat, fake_flat], axis=0)
         tsne = TSNE(n_components=2, perplexity=30, n_iter=300, random_state=42)
         emb = tsne.fit_transform(combined)
@@ -560,12 +588,13 @@ def plot_dashboard(data, metrics, dataset_name, out_dir):
                         alpha=0.4, label="Real", edgecolors="none")
         ax_tsne.scatter(emb[n_r:, 0], emb[n_r:, 1], c=COLORS["diffts"], s=6,
                         alpha=0.4, label="Diffusion-TS", edgecolors="none")
-        ax_tsne.legend(markerscale=3, fontsize=8)
-    ax_tsne.set_title("t-SNE", fontweight="bold")
-    ax_tsne.set_xticks([])
-    ax_tsne.set_yticks([])
+        ax_tsne.legend(markerscale=3, fontsize=9, edgecolor="none")
+    ax_tsne.set_title(r"$t$-SNE Embedding", fontweight="bold")
+    ax_tsne.set_xlabel(r"$t$-SNE$_1$")
+    ax_tsne.set_ylabel(r"$t$-SNE$_2$")
+    ax_tsne.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
-    # Bottom-left: marginals (2 cols)
+    # Bottom-left: marginals
     ax_marg = fig.add_subplot(gs[1, 0:2])
     feat_idx = 0
     real_feat = data["real"][:, :, feat_idx].flatten()
@@ -579,21 +608,23 @@ def plot_dashboard(data, metrics, dataset_name, out_dir):
         padts_feat = data["padts"][:, :, feat_idx].flatten()
         ax_marg.hist(padts_feat, bins=50, density=True, alpha=0.4,
                      color=COLORS["padts"], label="PaD-TS")
-    ax_marg.legend(fontsize=8)
-    ax_marg.set_title("Marginal Distribution (Feature 0)", fontweight="bold")
+    ax_marg.legend(fontsize=9, edgecolor="none")
+    ax_marg.set_xlabel(r"$x_1$")
+    ax_marg.set_ylabel(r"Density $p(x)$")
+    ax_marg.set_title(r"Marginal Distribution ($x_1$)", fontweight="bold")
 
-    # Bottom-right: metrics table (2 cols)
+    # Bottom-right: metrics table
     ax_table = fig.add_subplot(gs[1, 2:4])
     ax_table.axis("off")
     if metrics:
         rows = []
-        for metric_name in ["Context-FID", "Cross-Corr", "Discriminative", "Predictive"]:
-            row = [metric_name]
+        for metric_name in ["Context FID", "Cross Corr.", "Discriminative", "Predictive"]:
+            row = [METRIC_DISPLAY.get(metric_name, metric_name)]
             for method in ["diffts", "padts"]:
                 if method in metrics and metric_name in metrics[method]:
                     m, s = metrics[method][metric_name]
                     if m is not None:
-                        row.append(f"{m:.4f} +/- {s:.4f}")
+                        row.append(rf"${m:.4f} \pm {s:.4f}$")
                     else:
                         row.append("--")
                 else:
@@ -609,14 +640,19 @@ def plot_dashboard(data, metrics, dataset_name, out_dir):
         table = ax_table.table(cellText=rows, colLabels=col_labels,
                                 loc="center", cellLoc="center")
         table.auto_set_font_size(False)
-        table.set_fontsize(10)
+        table.set_fontsize(11)
         table.scale(1, 1.8)
-        ax_table.set_title("Quantitative Metrics (lower is better)", fontweight="bold")
+        for (row_idx, col_idx), cell in table.get_celld().items():
+            if row_idx == 0:
+                cell.set_fontsize(11)
+                cell.set_text_props(fontweight="bold")
+        ax_table.set_title(r"Quantitative Metrics ($\downarrow$ lower is better)",
+                           fontweight="bold")
     else:
-        ax_table.text(0.5, 0.5, "Metrics not computed\n(use --skip_metrics=False)",
+        ax_table.text(0.5, 0.5, "Metrics not computed\n(run without --skip_metrics)",
                       ha="center", va="center", fontsize=12, color="gray")
 
-    fig.suptitle(f"{dataset_name.upper()} — Results Dashboard",
+    fig.suptitle(rf"{ds_label} $-$ Results Dashboard",
                  fontsize=18, fontweight="bold", y=1.01)
     path = os.path.join(out_dir, f"{dataset_name}_dashboard.png")
     fig.savefig(path)
@@ -627,9 +663,8 @@ def plot_dashboard(data, metrics, dataset_name, out_dir):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def process_dataset(dataset_name, args):
-    """Generate all figures for one dataset."""
     print(f"\n{'='*60}")
-    print(f"  {dataset_name.upper()}")
+    print(f"  {DATASET_DISPLAY.get(dataset_name, dataset_name).upper()}")
     print(f"{'='*60}")
 
     data = load_dataset(dataset_name, output_dir=args.output_dir, padts_path=args.padts_path)
@@ -647,7 +682,6 @@ def process_dataset(dataset_name, args):
     out_dir = os.path.join(args.fig_dir, dataset_name)
     os.makedirs(out_dir, exist_ok=True)
 
-    # Plots (always)
     np.random.seed(42)
     plot_sample_series(data, dataset_name, out_dir)
     plot_tsne(data, dataset_name, out_dir)
@@ -655,14 +689,12 @@ def process_dataset(dataset_name, args):
     plot_marginals(data, dataset_name, out_dir)
     plot_autocorrelation(data, dataset_name, out_dir)
 
-    # Metrics (optional)
     metrics = {}
     if not args.skip_metrics:
         metrics["diffts"] = compute_all_metrics(data["real"], data["diffts"], "Diffusion-TS")
         if "padts" in data:
             metrics["padts"] = compute_all_metrics(data["real"], data["padts"], "PaD-TS")
 
-    # Dashboard
     plot_dashboard(data, metrics, dataset_name, out_dir)
 
     return metrics
@@ -696,7 +728,6 @@ def main():
             continue
         all_metrics[ds] = process_dataset(ds, args)
 
-    # Cross-dataset metric comparison chart
     if not args.skip_metrics and len(datasets) > 1:
         print(f"\n{'='*60}")
         print("  Cross-Dataset Metric Comparison")
