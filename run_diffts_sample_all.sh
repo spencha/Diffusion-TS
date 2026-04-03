@@ -43,13 +43,13 @@ CONFIGS[mujoco]="Config/mujoco.yaml"
 CONFIGS[mhealth]="Config/mhealth.yaml"
 
 declare -A CKPT_DIRS
-CKPT_DIRS[stocks]="Checkpoints_stock"
-CKPT_DIRS[etth]="Checkpoints_etth"
-CKPT_DIRS[energy]="Checkpoints_energy"
-CKPT_DIRS[fmri]="Checkpoints_fmri"
-CKPT_DIRS[sines]="Checkpoints_sines"
-CKPT_DIRS[mujoco]="Checkpoints_mujoco"
-CKPT_DIRS[mhealth]="Checkpoints_mhealth"
+CKPT_DIRS[stocks]="Checkpoints_stock_24"
+CKPT_DIRS[etth]="Checkpoints_etth_24"
+CKPT_DIRS[energy]="Checkpoints_energy_24"
+CKPT_DIRS[fmri]="Checkpoints_fmri_24"
+CKPT_DIRS[sines]="Checkpoints_sine_24"
+CKPT_DIRS[mujoco]="Checkpoints_mujoco_24"
+CKPT_DIRS[mhealth]="Checkpoints_mhealth_24"
 
 DATASETS="${DATASETS:-stocks;etth;energy;fmri;sines;mujoco;mhealth}"
 
@@ -69,7 +69,7 @@ for dataset in "${DATASET_LIST[@]}"; do
     fi
 
     # Find the latest milestone number from checkpoint files
-    LATEST=$(ls "$ckpt_dir"/model-*.pt 2>/dev/null | sed 's/.*model-\([0-9]*\)\.pt/\1/' | sort -n | tail -1)
+    LATEST=$(ls "$ckpt_dir"/checkpoint-*.pt 2>/dev/null | sed 's/.*checkpoint-\([0-9]*\)\.pt/\1/' | sort -n | tail -1)
     if [ -z "$LATEST" ]; then
         echo "SKIP: No checkpoints found in $ckpt_dir for $dataset"
         continue
